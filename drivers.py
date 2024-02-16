@@ -85,7 +85,6 @@ if wdf_or_wdm == 'wdf':
     runCommand(cmd)
 
     #retype 3rd param 
-    vbind_func_ptr = creation_symbol.getReferences()[0].getToAddress()
     vbind_ref = getReferencesTo(creation_symbol.getReferences()[0].getFromAddress())[0].getFromAddress()
     load_ins = find_param_load_by_ins(vbind_ref, u'LEA', u'R8', 0)
     if load_ins == None:
@@ -161,3 +160,51 @@ if wdf_or_wdm == 'wdf':
         u'Driver Info',
         u'EvtIoDeviceControl'
     )
+
+#WDM
+#apply function sig to IoCreateDevice
+#retype first parameter as DRIVER_OBJECT
+#get DRIVER_OBJECT->MajorFunction[0xe] and bookmark
+
+if wdf_or_wdm == 'wdm':
+
+    #apply function sig to IoCreateDevice
+    iocreate_dt = getDataTypes('IoCreateDevice')[0]
+    iocreate_func_ptr = creation_symbol.getReferences()[0].getToAddress()
+    cmd = ApplyFunctionSignatureCmd(iocreate_func_ptr, iocreate_dt, SourceType.USER_DEFINED)
+    runCommand(cmd)
+
+    #retype first parameter as DRIVER_OBJECT
+    iocreate_ref = getReferencesTo(creation_symbol.getReferences()[0].getFromAddress())[0].getFromAddress()
+    driver_object_dt = getDataTypes('DRIVER_OBJECT')[0]
+    iocreate_caller = getFunctionBefore(iocreate_ref)
+    driver_object_var = iocreate_caller.getParameters()[0]
+    driver_object_var.setDataType(driver_object_dt, True, True, SourceType.USER_DEFINED)
+
+    #get DRIVER_OBJECT->MajorFunction[0xe] and bookmark
+    mj_refs = ListAccumulator()
+    ReferenceUtils.findDataTypeReferences(
+        mj_refs,
+        driver_object_dt,
+        u'MajorFunction',
+        currentProgram,
+        ghidra.util.task.TaskMonitor.DUMMY
+    )
+    for mj_ref in mj_refs:
+        if u'MajorFunction[0xe] = ' in mj_ref.context.getPlainText():
+            #get address of reference
+            ref_addr = mj_ref.locationOfUse
+
+            #get register that holds IRP_MJ_DEVICE_CONTROL
+            dev_ctrl_fn_ptr_reg = getInstructionAt(ref_addr).getDefaultOperandRepresentation(1)
+
+            #find_param_load_by_ins the instruction that loaded it into that reg
+            reg_load_addr = find_param_load_by_ins(ref_addr, u'LEA', dev_ctrl_fn_ptr_reg, 0)
+            dev_ctrl_fn_addr = toAddr(getInstructionAt(reg_load_addr).getOpObjects(1)[0].getValue())
+
+            #bookmark that address
+            createBookmark(
+                dev_ctrl_fn_addr,
+                'Driver Info',
+                'IRP_MJ_DEVICE_CONTROL'
+            )
