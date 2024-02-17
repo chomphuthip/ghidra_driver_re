@@ -1,4 +1,4 @@
-#drivers.py
+#get_ioctl_handler.py
 from __future__ import print_function
 import json
 from ghidra.app.cmd.function import ApplyFunctionSignatureCmd
