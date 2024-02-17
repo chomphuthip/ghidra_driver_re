@@ -1,9 +1,12 @@
 #drivers.py
 from __future__ import print_function
+import json
 from ghidra.app.cmd.function import ApplyFunctionSignatureCmd
 from ghidra.program.model.symbol import SourceType
 from ghidra.app.plugin.core.navigation.locationreferences import ReferenceUtils
 from ghidra.util.datastruct import ListAccumulator
+from ghidra.app.services import DataTypeManagerService
+#from java.io import File
 
 #get imports
 #if WdfVersionBind, its WDF
@@ -19,6 +22,23 @@ from ghidra.util.datastruct import ListAccumulator
 #apply function sig to IoCreateDevice
 #retype first parameter as DRIVER_OBJECT
 #get DRIVER_OBJECT->MajorFunction[0xe] and bookmark
+
+#    config_fh = open('./ghidra_scripts/config.json')
+#    config = json.load(config_fh)
+#    config_fh.close()
+#
+#    wdf_structs_path = config['WdfStructs']
+#    ntosrknl_path = config['ntosrknl']
+
+dtms = getState().getTool().getService(DataTypeManagerService)
+datatypes = {}
+datatypes['vbind_dt'] = dtms.getDataType('WdfVersionBind')
+datatypes['bind_info_dt'] = dtms.getDataType('WDF_BIND_INFO')
+datatypes['wdff_ptr_dt'] = dtms.getDataType('PWDFFUNCTIONS')
+datatypes['wdff_dt'] = dtms.getDataType('_WDFFUNCTIONS')
+datatypes['config_dt'] = dtms.getDataType('WDF_IO_QUEUE_CONFIG')
+datatypes['iocreate_dt'] = dtms.getDataType('IoCreateDevice')
+datatypes['driver_object_dt'] = dtms.getDataType('DRIVER_OBJECT')
 
 
 def find_param_load_by_ins(addr, mnem, op, op_index, back = 0):
@@ -79,7 +99,7 @@ if wdf_or_wdm == False:
 if wdf_or_wdm == 'wdf':
 
     #apply function sig to WdfVersionBind
-    vbind_dt = getDataTypes('WdfVersionBind')[0]
+    vbind_dt = datatypes['vbind_dt']
     vbind_func_ptr = creation_symbol.getReferences()[0].getToAddress()
     cmd = ApplyFunctionSignatureCmd(vbind_func_ptr, vbind_dt, SourceType.USER_DEFINED)
     runCommand(cmd)
@@ -91,22 +111,22 @@ if wdf_or_wdm == 'wdf':
         print('unable to get bindinfo')
         exit()
     bind_info = toAddr(getInstructionAt(load_ins).getOpObjects(1)[0].getValue())
-    bind_info_dt = getDataTypes('WDF_BIND_INFO')[0]
+    bind_info_dt = datatypes['bind_info_dt']
     removeDataAt(bind_info)
     bind_info_data = createData(bind_info, bind_info_dt)
 
     #retype FuncTable to WDFFUNCTIONS*
-    wdff_ptr_dt = getDataTypes('WDFFUNCTIONS *')[0]
+    wdff_ptr_dt = datatypes['wdff_ptr_dt']
     wdff_ptr = bind_info_data.getComponent(4).getValue()
     removeDataAt(wdff_ptr)
     createData(wdff_ptr, wdff_ptr_dt)
 
     #get IoQueueCreateCall 
     io_queue_create_refs = ListAccumulator()
-    wdff_dt = getDataTypes('_WDFFUNCTIONS')[0]
+    wdff_dt = datatypes['wdff_dt']
     ReferenceUtils.findDataTypeReferences(
         io_queue_create_refs,
-        wdff_dt,
+        getDataTypes('_WDFFUNCTIONS')[0],
         u'pfnWdfIoQueueCreate',
         currentProgram,
         ghidra.util.task.TaskMonitor.DUMMY
@@ -134,8 +154,7 @@ if wdf_or_wdm == 'wdf':
     config_load_rsp_offset = getInstructionAt(config_load_ins).getOpObjects(1)[1]
     config_offset = config_load_rsp_offset.getValue() + caller_rsp
 
-
-    config_dt = getDataTypes('WDF_IO_QUEUE_CONFIG')[0]
+    config_dt = datatypes['config_dt']
     caller_stack_frame.clearVariable(config_offset)
     config_var = caller_stack_frame.createVariable(u'queue_config', config_offset, config_dt, ghidra.program.model.symbol.SourceType.USER_DEFINED)
 
@@ -169,14 +188,14 @@ if wdf_or_wdm == 'wdf':
 if wdf_or_wdm == 'wdm':
 
     #apply function sig to IoCreateDevice
-    iocreate_dt = getDataTypes('IoCreateDevice')[0]
+    iocreate_dt = datatypes['iocreate_dt']
     iocreate_func_ptr = creation_symbol.getReferences()[0].getToAddress()
     cmd = ApplyFunctionSignatureCmd(iocreate_func_ptr, iocreate_dt, SourceType.USER_DEFINED)
     runCommand(cmd)
 
     #retype first parameter as DRIVER_OBJECT
     iocreate_ref = getReferencesTo(creation_symbol.getReferences()[0].getFromAddress())[0].getFromAddress()
-    driver_object_dt = getDataTypes('DRIVER_OBJECT')[0]
+    driver_object_dt = datatypes['driver_object_dt']
     iocreate_caller = getFunctionBefore(iocreate_ref)
     driver_object_var = iocreate_caller.getParameters()[0]
     driver_object_var.setDataType(driver_object_dt, True, True, SourceType.USER_DEFINED)
@@ -185,7 +204,7 @@ if wdf_or_wdm == 'wdm':
     mj_refs = ListAccumulator()
     ReferenceUtils.findDataTypeReferences(
         mj_refs,
-        driver_object_dt,
+        getDataTypes('DRIVER_OBJECT')[0],
         u'MajorFunction',
         currentProgram,
         ghidra.util.task.TaskMonitor.DUMMY
