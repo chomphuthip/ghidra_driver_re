@@ -1,4 +1,4 @@
-#consumers.py
+#get_ioctls_from_consumers.py
 #use when you have access to DLLs that use the driver
 
 #get all calls of DeviceIoControl
